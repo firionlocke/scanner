@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Scan & Verify Last 18 Digits (Free Scanner)</title>
+  <title>Scan & Verify Last 18 Digits</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="manifest" href="manifest.json" />
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <meta name="theme-color" content="#ffffff">
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="theme-color" content="#ffffff" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
   <script src="https://unpkg.com/@zxing/browser@0.0.10"></script>
   <style>
@@ -19,10 +19,11 @@
       to { background-color: transparent; }
     }
     video { width: 100%; margin-top: 10px; max-height: 300px; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-  <h2>📦 Scan & Verify Last 18 Digits (Free Scanner)</h2>
+  <h2>📦 Scan & Verify Last 18 Digits</h2>
 
   <input type="file" id="pdfFile" accept=".pdf" />
   <button onclick="extractFromPDF()">Extract 18-Digit Numbers from PDF</button>
@@ -62,37 +63,33 @@
 
     const reader = new FileReader();
     reader.onload = async function () {
-      try {
-        const data = new Uint8Array(reader.result);
-        const pdf = await pdfjsLib.getDocument({ data }).promise;
+      const data = new Uint8Array(reader.result);
+      const pdf = await pdfjsLib.getDocument({ data }).promise;
 
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const textContent = await page.getTextContent();
-          let lines = [];
-          let currentLine = [];
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        let lines = [];
+        let currentLine = [];
 
-          for (const item of textContent.items) {
-            const y = item.transform[5];
-            if (currentLine.length > 0 && Math.abs(y - currentLine[0].transform[5]) > 3) {
-              lines.push(currentLine);
-              currentLine = [];
-            }
-            currentLine.push(item);
+        for (const item of textContent.items) {
+          const y = item.transform[5];
+          if (currentLine.length > 0 && Math.abs(y - currentLine[0].transform[5]) > 3) {
+            lines.push(currentLine);
+            currentLine = [];
           }
-          if (currentLine.length) lines.push(currentLine);
-
-          for (const row of lines) {
-            const first = row[0]?.str?.trim();
-            if (/^\d{18}$/.test(first)) expected.add(first);
-          }
+          currentLine.push(item);
         }
+        if (currentLine.length) lines.push(currentLine);
 
-        alert("Extraction complete. Click 'Scan Barcode' to begin.");
-        updateUI();
-      } catch (err) {
-        alert("PDF extraction failed: " + err.message);
+        for (const row of lines) {
+          const first = row[0]?.str?.trim();
+          if (/^\d{18}$/.test(first)) expected.add(first);
+        }
       }
+
+      alert("Extraction complete. Click 'Scan Barcode' to begin.");
+      updateUI();
     };
     reader.readAsArrayBuffer(file);
   }
@@ -129,27 +126,32 @@
 
     try {
       const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
-      const selectedDeviceId = devices[0]?.deviceId;
-      if (!selectedDeviceId) throw new Error("No camera found.");
 
-      await codeReader.decodeFromVideoDevice(selectedDeviceId, videoElement, (result, err) => {
+      if (!devices.length) {
+        alert("No camera devices found.");
+        return;
+      }
+
+      const deviceId = devices[0].deviceId;
+
+      await codeReader.decodeFromVideoDevice(deviceId, videoElement, (result, err) => {
         if (result) {
           const code = result.getText();
           const last18 = code.slice(-18);
           let matched = false;
 
-          if (/^\d{18}$/.test(code) && expected.has(code) && !matchedScans.has(code)) {
+          if (/^\d{18}$/.test(code) && expected.has(code)) {
             matchedScans.add(code);
             updateUI(code);
             matched = true;
-          } else if (/^\d{18}$/.test(last18) && expected.has(last18) && !matchedScans.has(last18)) {
+          } else if (/^\d{18}$/.test(last18) && expected.has(last18)) {
             matchedScans.add(last18);
             updateUI(last18);
             matched = true;
           }
 
           if (matched) {
-            alert("✅ Match found: " + (code.length > 18 ? last18 : code));
+            alert("✅ Match: " + (code.length > 18 ? last18 : code));
           } else {
             alert("Scanned, but not matched.");
           }
@@ -158,27 +160,18 @@
           videoElement.classList.add("hidden");
         }
       });
+
     } catch (err) {
-      alert("Camera error: " + err.message);
+      console.error(err);
+      alert("Camera access failed: " + err.message);
     }
   }
 
   function manualAdd() {
     const input = document.getElementById("manualInput").value.trim();
-    if (!/^\d{18}$/.test(input)) {
-      alert("Enter a valid 18-digit number.");
-      return;
-    }
-
-    if (!expected.has(input)) {
-      alert("This number is not in the expected list.");
-      return;
-    }
-
-    if (matchedScans.has(input)) {
-      alert("Already scanned.");
-      return;
-    }
+    if (!/^\d{18}$/.test(input)) return alert("Enter a valid 18-digit number.");
+    if (!expected.has(input)) return alert("Not found in PDF list.");
+    if (matchedScans.has(input)) return alert("Already scanned.");
 
     matchedScans.add(input);
     updateUI(input);
@@ -186,8 +179,11 @@
   }
 
   function exportList(type) {
-    const items = type === 'scanned' ? Array.from(matchedScans) : Array.from(expected).filter(e => !matchedScans.has(e));
-    const blob = new Blob([items.join('\n')], { type: "text/csv" });
+    const items = type === 'scanned'
+      ? Array.from(matchedScans)
+      : Array.from(expected).filter(e => !matchedScans.has(e));
+
+    const blob = new Blob([items.join('\n')], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -198,7 +194,7 @@
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('service-worker.js')
-      .then(reg => console.log('✅ Service worker registered'))
+      .then(() => console.log('✅ Service worker registered'))
       .catch(err => console.error('⚠️ Service worker registration failed:', err));
   }
 </script>
