@@ -29,7 +29,7 @@
   <button onclick="extractFromPDF()">Extract 18-Digit Numbers from PDF</button>
 
   <button id="startScan" onclick="startScanner()">📷 Scan Barcode</button>
-  <video id="video" class="hidden"></video>
+  <video id="video" class="hidden" autoplay playsinline></video>
 
   <h4>📝 Manual Entry:</h4>
   <input type="text" id="manualInput" placeholder="Enter 18-digit number" maxlength="18" />
@@ -120,7 +120,7 @@
   }
 
   async function startScanner() {
-    const codeReader = new ZXing.BrowserMultiFormatReader();
+    const codeReader = new ZXing.BrowserMultiFormatContinuousReader();
     const videoElement = document.getElementById("video");
     videoElement.classList.remove("hidden");
 
