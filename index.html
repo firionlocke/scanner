@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Scan & Verify Last 18 Digits (Free Scanner)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="theme-color" content="#ffffff">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+  <script src="https://unpkg.com/@zxing/browser@0.0.10"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    textarea, input[type="file"], button { width: 100%; margin-top: 10px; }
+    ul { background: #f8f8f8; padding: 10px; margin-top: 10px; }
+    .highlight { background-color: #c8f7c5; animation: fadeout 3s forwards; }
+    @keyframes fadeout {
+      from { background-color: #c8f7c5; }
+      to { background-color: transparent; }
+    }
+    video { width: 100%; margin-top: 10px; max-height: 300px; }
+  </style>
+</head>
+<body>
+  <h2>📦 Scan & Verify Last 18 Digits (Free Scanner)</h2>
+
+  <input type="file" id="pdfFile" accept=".pdf" />
+  <button onclick="extractFromPDF()">Extract 18-Digit Numbers from PDF</button>
+
+  <button id="startScan" onclick="startScanner()">📷 Scan Barcode</button>
+  <video id="video" class="hidden"></video>
+
+  <h4>📝 Manual Entry:</h4>
+  <input type="text" id="manualInput" placeholder="Enter 18-digit number" maxlength="18" />
+  <button onclick="manualAdd()">Add Manually</button>
+
+  <h4>📊 Summary:</h4>
+  <p id="summary">Scanned: 0 / 0 — Missing: 0</p>
+
+  <button onclick="exportList('scanned')">⬇️ Export Scanned</button>
+  <button onclick="exportList('missing')">⬇️ Export Missing</button>
+
+  <h4>✅ Scanned:</h4>
+  <ul id="scannedList"></ul>
+
+  <h4>❌ Missing:</h4>
+  <ul id="missingList"></ul>
+
+<script>
+  const expected = new Set();
+  const matchedScans = new Set();
+
+  async function extractFromPDF() {
+    const file = document.getElementById("pdfFile").files[0];
+    if (!file) return alert("Please upload a PDF.");
+
+    expected.clear();
+    matchedScans.clear();
+    document.getElementById("scannedList").innerHTML = '';
+    document.getElementById("missingList").innerHTML = '';
+    document.getElementById("summary").textContent = '';
+
+    const reader = new FileReader();
+    reader.onload = async function () {
+      try {
+        const data = new Uint8Array(reader.result);
+        const pdf = await pdfjsLib.getDocument({ data }).promise;
+
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const textContent = await page.getTextContent();
+          let lines = [];
+          let currentLine = [];
+
+          for (const item of textContent.items) {
+            const y = item.transform[5];
+            if (currentLine.length > 0 && Math.abs(y - currentLine[0].transform[5]) > 3) {
+              lines.push(currentLine);
+              currentLine = [];
+            }
+            currentLine.push(item);
+          }
+          if (currentLine.length) lines.push(currentLine);
+
+          for (const row of lines) {
+            const first = row[0]?.str?.trim();
+            if (/^\d{18}$/.test(first)) expected.add(first);
+          }
+        }
+
+        alert("Extraction complete. Click 'Scan Barcode' to begin.");
+        updateUI();
+      } catch (err) {
+        alert("PDF extraction failed: " + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function updateUI(highlightId = null) {
+    const scannedList = document.getElementById("scannedList");
+    const missingList = document.getElementById("missingList");
+    scannedList.innerHTML = "";
+    missingList.innerHTML = "";
+
+    for (const id of matchedScans) {
+      const li = document.createElement("li");
+      li.textContent = id;
+      if (id === highlightId) li.classList.add("highlight");
+      scannedList.appendChild(li);
+    }
+
+    for (const id of expected) {
+      if (!matchedScans.has(id)) {
+        const li = document.createElement("li");
+        li.textContent = id;
+        missingList.appendChild(li);
+      }
+    }
+
+    document.getElementById("summary").textContent =
+      `Scanned: ${matchedScans.size} / ${expected.size} — Missing: ${expected.size - matchedScans.size}`;
+  }
+
+  async function startScanner() {
+    const codeReader = new ZXing.BrowserMultiFormatReader();
+    const videoElement = document.getElementById("video");
+    videoElement.classList.remove("hidden");
+
+    try {
+      const devices = await ZXing.BrowserCodeReader.listVideoInputDevices();
+      const selectedDeviceId = devices[0]?.deviceId;
+      if (!selectedDeviceId) throw new Error("No camera found.");
+
+      await codeReader.decodeFromVideoDevice(selectedDeviceId, videoElement, (result, err) => {
+        if (result) {
+          const code = result.getText();
+          const last18 = code.slice(-18);
+          let matched = false;
+
+          if (/^\d{18}$/.test(code) && expected.has(code) && !matchedScans.has(code)) {
+            matchedScans.add(code);
+            updateUI(code);
+            matched = true;
+          } else if (/^\d{18}$/.test(last18) && expected.has(last18) && !matchedScans.has(last18)) {
+            matchedScans.add(last18);
+            updateUI(last18);
+            matched = true;
+          }
+
+          if (matched) {
+            alert("✅ Match found: " + (code.length > 18 ? last18 : code));
+          } else {
+            alert("Scanned, but not matched.");
+          }
+
+          codeReader.reset();
+          videoElement.classList.add("hidden");
+        }
+      });
+    } catch (err) {
+      alert("Camera error: " + err.message);
+    }
+  }
+
+  function manualAdd() {
+    const input = document.getElementById("manualInput").value.trim();
+    if (!/^\d{18}$/.test(input)) {
+      alert("Enter a valid 18-digit number.");
+      return;
+    }
+
+    if (!expected.has(input)) {
+      alert("This number is not in the expected list.");
+      return;
+    }
+
+    if (matchedScans.has(input)) {
+      alert("Already scanned.");
+      return;
+    }
+
+    matchedScans.add(input);
+    updateUI(input);
+    document.getElementById("manualInput").value = '';
+  }
+
+  function exportList(type) {
+    const items = type === 'scanned' ? Array.from(matchedScans) : Array.from(expected).filter(e => !matchedScans.has(e));
+    const blob = new Blob([items.join('\n')], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${type}_codes.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('service-worker.js')
+      .then(reg => console.log('✅ Service worker registered'))
+      .catch(err => console.error('⚠️ Service worker registration failed:', err));
+  }
+</script>
+</body>
+</html>
